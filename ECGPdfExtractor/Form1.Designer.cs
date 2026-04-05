@@ -31,6 +31,7 @@
             this.tbMsg = new System.Windows.Forms.TextBox();
             this.label1 = new System.Windows.Forms.Label();
             this.btConvert = new System.Windows.Forms.Button();
+            this.cbDelete = new System.Windows.Forms.CheckBox();
             this.SuspendLayout();
             // 
             // tbMsg
@@ -60,11 +61,24 @@
             this.btConvert.UseVisualStyleBackColor = true;
             this.btConvert.Click += new System.EventHandler(this.btConvert_Click);
             // 
+            // cbDelete
+            // 
+            this.cbDelete.AutoSize = true;
+            this.cbDelete.Checked = true;
+            this.cbDelete.CheckState = System.Windows.Forms.CheckState.Checked;
+            this.cbDelete.Location = new System.Drawing.Point(404, 29);
+            this.cbDelete.Name = "cbDelete";
+            this.cbDelete.Size = new System.Drawing.Size(126, 16);
+            this.cbDelete.TabIndex = 4;
+            this.cbDelete.Text = "Delete temporary files";
+            this.cbDelete.UseVisualStyleBackColor = true;
+            // 
             // Form1
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 12F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.ClientSize = new System.Drawing.Size(680, 431);
+            this.Controls.Add(this.cbDelete);
             this.Controls.Add(this.btConvert);
             this.Controls.Add(this.label1);
             this.Controls.Add(this.tbMsg);
@@ -79,6 +93,7 @@
         private System.Windows.Forms.TextBox tbMsg;
         private System.Windows.Forms.Label label1;
         private System.Windows.Forms.Button btConvert;
+        private System.Windows.Forms.CheckBox cbDelete;
     }
 }
 

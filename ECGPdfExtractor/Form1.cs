@@ -143,6 +143,7 @@ namespace ECGPdfExtractor
                             Log(ex.Message);
                         }
 
+                        if (cbDelete.Checked)
                         {
                             foreach (var f in Directory.GetFiles(folder + dir))
                             {
