@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
+using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Linq;
@@ -74,6 +75,9 @@ namespace ECGPdfExtractor
                     int x = filenames[i].LastIndexOf('\\');
                     filenames[i] = filenames[i].Substring(x + 1, filenames[i].Length - x - 5);
                 }
+                Stopwatch stopwatch = new Stopwatch();
+                stopwatch.Start();
+
                 // load document
                 foreach (var dir in filenames)
                 {
@@ -96,10 +100,6 @@ namespace ECGPdfExtractor
 
                             using (StreamWriter w = File.CreateText(folder + dir + "\\" + dir + "_ekg_data.txt"))
                             {
-                                string[] chtnoDate = dir.Split('_');
-
-                                w.WriteLine("Date, " + chtnoDate[2] + chtnoDate[3]);
-
                                 WriteEkgElements(w, "I", ekg.I);
                                 WriteEkgElements(w, "II", ekg.II);
                                 WriteEkgElements(w, "III", ekg.III);
@@ -163,7 +163,9 @@ namespace ECGPdfExtractor
                     }
                 }
 
-
+                stopwatch.Stop();
+                double elapsedMinutes = stopwatch.Elapsed.TotalMinutes;
+                tbMsg.AppendText($"Elapsed time = {elapsedMinutes:F2} min\r\n");
             }
         }
     }
