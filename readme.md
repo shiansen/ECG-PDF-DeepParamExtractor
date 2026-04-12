@@ -60,27 +60,28 @@ Unlike conventional approaches relying on rasterized image processing, this fram
 1. Build the solution:
 ```bash
 ECGPdfExtractor.sln
-
+```
 2. Run the executable and specify the input directory containing ECG PDFs.
 3. The tool will automatically:
   Parse PDF vector objects
   Reconstruct ECG signals
   Export time-series data to output directory
-  
 
-Deep Learning: DualResNetECG
-Model Overview
+---
+
+## Deep Learning: DualResNetECG
+### Model Overview
 
 DualResNetECG is a dual-stream residual neural network designed for comprehensive ECG parameter prediction. The architecture integrates complementary feature representations to improve both regression accuracy and classification reliability.
 
-Architecture Design
-Dual-input feature streams:
-Local morphological features
-Global contextual or frequency-domain features
-Residual learning blocks for stable optimization
-Feature fusion module for integrated representation learning
-Multi-head output layers for multi-task prediction
-Predictive Targets
+### Architecture Design
+- Dual-input feature streams:
+-- Local morphological features
+-- Global contextual or frequency-domain features
+- Residual learning blocks for stable optimization
+- Feature fusion module for integrated representation learning
+- Multi-head output layers for multi-task prediction
+- Predictive Targets
 
 <div align="center">
   <img src="./deep_learning_models/plots/DualResNetECG_Architecture.png" width="100%">
@@ -101,4 +102,45 @@ The proposed framework demonstrates:
 
 High-fidelity ECG waveform reconstruction from vector-based PDFs
 Robust multi-task predictive performance across eight ECG parameters
-Stable generalization across heterogeneous ECG recordings  
+Stable generalization across heterogeneous ECG recordings
+
+Requirements
+1. C# Signal Extraction Tool
+.NET Framework 4.0 or higher
+PdfFileAnalyzer (integrated)
+2. Deep Learning Environment (Python)
+```bash
+python >= 3.10
+```
+Dependencies
+```bash
+torch >= 2.7.0
+torchvision
+numpy >= 1.19.5
+pandas >= 1.3.0
+scipy >= 1.7.0
+matplotlib
+scikit-learn
+tqdm
+```
+
+## Quick Start
+Step 1: ECG Signal Extraction
+
+Place ECG PDF files into a directory and run:
+
+./ECGPdfExtractor_exe/ECGPdfExtractor.exe
+
+The program will automatically process all files and output reconstructed ECG signals.
+
+Step 2: Model Training / Inference
+The DualResNetECG model was trained on the full institutional ECG dataset under secure on-premises conditions. Due to privacy-preserving governance restrictions, training data cannot be redistributed.
+
+Navigate to the deep learning module:
+
+cd deep_learning_models
+python ecg_main.py
+
+## Acknowledgements
+
+We acknowledge the PdfFileAnalyzer library (https://github.com/Uzi-Granot/PdfFileAnalyzer) for enabling robust parsing of PDF vector structures.
