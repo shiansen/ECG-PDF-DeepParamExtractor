@@ -32,12 +32,12 @@ Unlike conventional approaches relying on rasterized image processing, this fram
 ---
 
 ## Repository Structure
-├── ECGPdfExtractor/ # C# ECG PDF vector extraction tool
-├── ECGPdfExtractor_exe/ # Compiled C# executable
-├── deep_learning_models/ # DualResNetECG implementation (PyTorch)
-├── MUSE-ECG-PDF-examples/ # Sample ECG PDF files for validation
-├── ecg_data_test/ # 1,000 Extracted ECG time-series data (for testing)
-└── README.md
+- ├── ECGPdfExtractor/ # C# ECG PDF vector extraction tool
+- ├── ECGPdfExtractor_exe/ # Compiled C# executable
+- ├── deep_learning_models/ # DualResNetECG implementation (PyTorch)
+- ├── MUSE-ECG-PDF-examples/ # Sample ECG PDF files for validation
+- ├── ecg_data_test/ # 1,000 Extracted ECG time-series data (for testing)
+- └── README.md
 
 
 ---
