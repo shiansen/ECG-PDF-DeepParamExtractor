@@ -7,14 +7,14 @@ from torch.utils.data import DataLoader
 from sklearn.metrics import (
     accuracy_score, precision_score, recall_score, f1_score,
     roc_auc_score, average_precision_score, confusion_matrix,
-    r2_score
+    r2_score, roc_curve, precision_recall_curve
 )
-
+import matplotlib.pyplot as plt
 import pickle
 from load_data import get_all_files
 from ecg_dataset import ECGDataset, LabelNormalizer
 from load_data import split_dataset
-from resnet_model import DualResNetECG, loss_fn_resnet2
+from resnet_model import DualResNetECG, loss_fn_resnet
 from ecgformer_model import DualECGFormer
 
 # ====== CONFIG ======
@@ -25,7 +25,7 @@ PATIENCE = 10
 
 LABEL_NAMES = ["HR","PR","QRS","QT","QTc","Paxis","Raxis","Taxis"]
 
-def compute_exist_metrics(pred_exist, gt_exist):
+def compute_exist_metrics2(pred_exist, gt_exist):
     results = {}
 
     pred_bin = (pred_exist > 0.5).astype(int)
@@ -81,6 +81,152 @@ def compute_exist_metrics(pred_exist, gt_exist):
         }
 
     return results
+
+def compute_exist_metrics(pred_exist, gt_exist):
+    results = {}
+
+    pred_bin = (pred_exist > 0.5).astype(int)
+
+    # 👉 只關心 PR (index=1) & Paxis (index=5)
+    TARGET_INDEX = {
+        "PR": 1,
+        "Paxis": 5
+    }
+
+    for name, i in TARGET_INDEX.items():
+
+        y_true = gt_exist[:, i]
+        y_pred = pred_bin[:, i]
+        y_prob = pred_exist[:, i]
+
+        # -------------------------
+        # Classification metrics
+        # -------------------------
+        acc = accuracy_score(y_true, y_pred)
+        prec = precision_score(y_true, y_pred, zero_division=0)
+        rec = recall_score(y_true, y_pred, zero_division=0)
+        f1 = f1_score(y_true, y_pred, zero_division=0)
+
+        tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
+
+        spec = tn / (tn + fp) if (tn + fp) > 0 else np.nan
+        npv = tn / (tn + fn) if (tn + fn) > 0 else np.nan
+
+        # -------------------------
+        # AUROC / AUPRC
+        # -------------------------
+        valid_mask = ~np.isnan(y_true) & ~np.isnan(y_prob)
+
+        if valid_mask.sum() > 10:  # 👉 至少要有樣本數
+
+            yt = y_true[valid_mask]
+            yp = y_prob[valid_mask]
+
+            if len(np.unique(yt)) > 1:
+                try:
+                    auc = roc_auc_score(yt, yp)
+                except:
+                    auc = np.nan
+
+                try:
+                    auprc = average_precision_score(yt, yp)
+                except:
+                    auprc = np.nan
+            else:
+                auc = np.nan
+                auprc = np.nan
+
+        else:
+            auc = np.nan
+            auprc = np.nan
+
+        results[name] = {
+            "Accuracy": acc,
+            "Precision": prec,
+            "Recall": rec,
+            "Specificity": spec,
+            "F1": f1,
+            "NPV": npv,
+            "AUROC": auc,
+            "AUPRC": auprc,
+
+            # 👉 加這個（後面畫圖會用）
+            "y_true": y_true,
+            "y_prob": y_prob
+        }
+
+    return results
+
+def plot_exist_curves(exist_metrics, save_dir=None):
+
+    for name, data in exist_metrics.items():
+
+        if name == "PR":
+            name = "PR interval :"
+        if name == "Paxis":
+            name = "P axis :"
+
+        y_true = data["y_true"]
+        y_prob = data["y_prob"]
+
+        # -------------------------
+        # 🔥 關鍵：移除 NaN
+        # -------------------------
+        valid_mask = ~np.isnan(y_true) & ~np.isnan(y_prob)
+
+        if valid_mask.sum() < 10:
+            print(f"{name}: not enough valid samples after NaN removal")
+            continue
+
+        yt = y_true[valid_mask]
+        yp = y_prob[valid_mask]
+
+        # -------------------------
+        # 必須有兩類
+        # -------------------------
+        if len(np.unique(yt)) < 2:
+            print(f"{name}: only one class after filtering, skip")
+            continue
+
+        # =========================
+        # ROC curve
+        # =========================
+        try:
+            fpr, tpr, _ = roc_curve(yt, yp)
+        except Exception as e:
+            print(f"{name}: ROC failed - {e}")
+            continue
+
+        plt.figure()
+        plt.plot(fpr, tpr)
+        plt.xlabel("False Positive Rate")
+        plt.ylabel("True Positive Rate")
+        plt.title(f"{name} ROC Curve (AUROC={data.get('AUROC', np.nan):.3f})")
+
+        if save_dir:
+            plt.savefig(f"{save_dir}/{name}_ROC.png", dpi=300)
+
+        plt.show()
+
+        # =========================
+        # PR curve
+        # =========================
+        try:
+            precision, recall, _ = precision_recall_curve(yt, yp)
+        except Exception as e:
+            print(f"{name}: PR curve failed - {e}")
+            continue
+
+        plt.figure()
+        plt.plot(recall, precision)
+        plt.xlabel("Recall")
+        plt.ylabel("Precision")
+        plt.title(f"{name} PR Curve (AUPRC={data.get('AUPRC', np.nan):.3f})")
+
+        if save_dir:
+            plt.savefig(f"{save_dir}/{name}_PR.png", dpi=300)
+
+        plt.show()
 
 # =========================
 # Bootstrap CI
@@ -308,10 +454,6 @@ def forward_model(model, leads, longII, model_name):
 
     return pred_exist, pred_value
 
-import numpy as np
-import matplotlib.pyplot as plt
-
-
 def bland_altman_plot(
     y_true,
     y_pred,
@@ -460,16 +602,21 @@ def final_test(model, test_loader, device, model_name, label_norm=None):
     for k, v in joint_metrics.items():
         print(k, v)
 
+    plot_exist_curves(exist_metrics, save_dir="plots")
+    print("PR exist distribution:", np.bincount(exists_gt[:, 1].astype(int)))
+    print("Paxis exist distribution:", np.bincount(exists_gt[:, 5].astype(int)))
+
+
 def build_model(model_name, device):
 
     if model_name.lower() == "resnet":
         model = DualResNetECG().to(device)
-        loss_fn = loss_fn_resnet2
+        loss_fn = loss_fn_resnet
         use_pretrain = False
 
     elif model_name.lower() == "ecgformer":
         model = DualECGFormer().to(device)
-        loss_fn = loss_fn_resnet2
+        loss_fn = loss_fn_resnet
         use_pretrain = False
 
     else:

@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 # -----------------------------
-# Patch Embedding（核心改進）
+# Patch Embedding
 # -----------------------------
 class PatchEmbed1D(nn.Module):
     def __init__(self, in_ch, d_model, patch_size=10):
@@ -22,7 +22,7 @@ class PatchEmbed1D(nn.Module):
 
 
 # -----------------------------
-# CNN feature extractor（穩定 Transformer）
+# CNN feature extractor
 # -----------------------------
 class ConvFeature(nn.Module):
     def __init__(self, in_ch, d_model):
@@ -42,7 +42,7 @@ class ConvFeature(nn.Module):
 
 
 # -----------------------------
-# Transformer Block（穩定版）
+# Transformer Block
 # -----------------------------
 class TransformerBlock(nn.Module):
     def __init__(self, d_model, nhead):
@@ -64,7 +64,7 @@ class TransformerBlock(nn.Module):
 
 
 # -----------------------------
-# 主模型（Dual Transformer）
+# 主模型（Dual Input）
 # -----------------------------
 class DualECGFormer(nn.Module):
     def __init__(self, d_model=128, nhead=4, depth=4):

@@ -109,6 +109,9 @@ class ResNet1D(nn.Module):
         x = self.pool(x).squeeze(-1)
         return x
 
+# -----------------------------
+# 主模型（Dual Input）
+# -----------------------------
 class DualResNetECG(nn.Module):
     def __init__(self, d_model=256):
         super().__init__()
@@ -155,23 +158,7 @@ class DualResNetECG(nn.Module):
 
         return exist, value, logvar
 
-def loss_fn_resnet1(exist_pred, value_pred, logvar, exist_gt, value_gt):
-    # ---- existence ----
-    bce = F.binary_cross_entropy(exist_pred, exist_gt)
-
-    # ---- masked regression ----
-    precision = torch.exp(-logvar)
-    diff = (value_pred - value_gt) ** 2
-
-    reg = precision * diff + logvar
-    reg = reg * exist_gt  # only when exist=1
-
-    reg = reg.sum() / (exist_gt.sum() + 1e-6)
-
-    return bce + reg
-
-
-def loss_fn_resnet2(
+def loss_fn_resnet(
     exist_pred,
     value_pred,
     logvar,

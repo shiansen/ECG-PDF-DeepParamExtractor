@@ -1,375 +1,178 @@
 import os
+import math
 import numpy as np
-import neurokit2 as nk
-from scipy.signal import butter, filtfilt
-from sklearn.metrics import *
-from collections import defaultdict
+import pandas as pd
 from glob import glob
 from tqdm import tqdm
+import neurokit2 as nk
 from ecg_dataset import parse_ecg_file
-
-FS = 500  # Hz
+from collections import defaultdict
+from sklearn.metrics import *
+from enum import Enum
 
 LABEL_KEYS = ["Hr","Pr","Qrs","Qt","Qtc","Paxis","Raxis","Taxis"]
 
-# =========================
-# 1. Preprocessing
-# =========================
-def bandpass_filter(signal, low=0.5, high=40, fs=500, order=3):
-    nyq = 0.5 * fs
-    b, a = butter(order, [low/nyq, high/nyq], btype='band')
-    return filtfilt(b, a, signal)
+class Status(Enum):
+    Success = 1
+    DelineateError = 2
+    RPeakError = 3
+    TypeError = 4
+
+def calculate_all_axes(data_12L_dict, sampling_rate=500):
+    """
+    計算 P, R, T 三個軸向
+    data_12L_dict: 需包含 'I' (0-2.5s) 與 'aVF' (2.5-5s) 的 cleaned 訊號
+    """
+    axes = {}
+
+    def get_wave_amplitudes(signal, wave_type='R'):
+        # 根據波形類型選擇特徵提取方式
+        if wave_type == 'R':
+            # R軸通常看整個 QRS 的淨振幅 (Max + Min，Min通常是負的S波)
+            return np.max(signal) + np.min(signal)
+        elif wave_type == 'P':
+            # P軸通常較小，取訊號中段排除大波後的局部極大值較準確
+            # 專業做法是取 P-peak 的振幅
+            peaks, _ = nk.ecg_peaks(signal, sampling_rate=sampling_rate)
+            # 這裡簡化為取訊號中 90th percentile 作為 P 波強度估計
+            return np.percentile(signal, 95)
+        elif wave_type == 'T':
+            # T軸取 T-peak 振幅
+            return np.max(signal)
+        return 0
+
+    # 取得 Lead I 與 aVF 的特徵
+    # 注意：在 3x4+1 格式中，這兩個導程的時間段是分開的，
+    # 假設傳入的 data_12L_dict['I'] 已經是那 1238 點的資料
+
+    for wave in ['P', 'R', 'T']:
+        val_i = get_wave_amplitudes(data_12L_dict['I'], wave_type=wave)
+        val_avf = get_wave_amplitudes(data_12L_dict['aVF'], wave_type=wave)
+
+        # 使用 atan2(Y, X) 計算角度
+        angle = np.degrees(np.arctan2(val_avf, val_i))
+        axes[f'{wave}_axis'] = angle
+
+    return axes
 
 
-def preprocess(ecg):
-    ecg = bandpass_filter(ecg)
-    ecg = nk.signal_detrend(ecg)
-    ecg = nk.standardize(ecg)
-    return ecg
+def robust_get_peaks(signal, sampling_rate):
+    """
+    強健型 R 波偵測：嘗試多種演算法確保不回傳空值
+    """
+    # 嘗試方法清單
+    methods = ["neurokit", "pantompkins1985", "nabian2018"]
 
+    for method in methods:
+        try:
+            _, info = nk.ecg_peaks(signal, sampling_rate=sampling_rate, method=method)
+            r_peaks = info["ECG_R_Peaks"]
+            if len(r_peaks) >= 2:  # 至少需要兩個點才能計算心率
+                return r_peaks, method
+        except Exception:
+            continue
 
-# =========================
-# 2. R peak detection (ensemble)
-# =========================
-def detect_r_peaks(signal):
+    return np.array([]), None
 
-    # Method 1: NeuroKit
+def calculate_ecg_metrics(ecg, sampling_rate=500):
+    results = {}
+
+    data_long_ii = ecg['longII']
+
+    # 預處理
+    cleaned_long_ii = nk.ecg_clean(data_long_ii, sampling_rate=sampling_rate, method="neurokit")
+
+    # 偵測 R 波並取得索引
+    r_peaks, method = robust_get_peaks(cleaned_long_ii, sampling_rate=sampling_rate)
+
+    # 3. 條件分支處理
+    if r_peaks.size == 0:
+        #print("Error: 無法偵測到任何 R 波，訊號可能無效或品質過差。")
+        return results, Status.RPeakError  # 直接 empty 的結果，避免後續崩潰
+
+    peaks_dict = {"ECG_R_Peaks": r_peaks}
+
+    # 強制確保為整數陣列，避免與字串拼接時出錯
+    r_peaks = np.array(r_peaks, dtype=int)
+
+    # 計算心率
+    hr_df = nk.ecg_rate(peaks_dict, sampling_rate=sampling_rate, desired_length=len(cleaned_long_ii))  # could be a list containing nan
+    results['Ventricular_Rate'] = np.nanmean(hr_df)  # RuntimeWarning: Mean of empty slice if hr_df contains nan
+    if np.isnan(results['Ventricular_Rate']):
+        print('hr_df:', hr_df)
+        print('R peaks:', r_peaks)
+        return results, Status.RPeakError
+
     try:
-        _, rpeaks_nk = nk.ecg_peaks(signal, sampling_rate=FS)
-        r1 = rpeaks_nk["ECG_R_Peaks"]
-    except:
-        r1 = np.array([])
+        # 使用修正後的 r_peaks 進行區間定位
+        _, waves_peak = nk.ecg_delineate(cleaned_long_ii, r_peaks,
+                                         sampling_rate=sampling_rate,
+                                         method="dwt")
 
-    return r1
+        # 提取特徵點 (注意：Neurokit 的回傳鍵名可能因版本微調，建議先 print(waves_peak.keys()) 檢查)
+        def get_mean_ms(key_start, key_end):
+            start = np.array(waves_peak.get(key_start, [np.nan]))
+            end = np.array(waves_peak.get(key_end, [np.nan]))
+            # 濾除 nan 並計算差值
+            diff = end - start
+            if all(math.isnan(x) for x in diff):
+                return np.nan
+            return np.nanmean(diff) * (1000 / sampling_rate)
 
+        results['PR_interval'] = get_mean_ms('ECG_P_Onsets', 'ECG_R_Onsets')
+        if np.isnan(results['PR_interval']):
+            return results, Status.DelineateError
+        results['QRS_duration'] = get_mean_ms('ECG_R_Onsets', 'ECG_R_Offsets')
+        if np.isnan(results['QRS_duration']):
+            return results, Status.DelineateError
+        qt_raw = get_mean_ms('ECG_R_Onsets', 'ECG_T_Offsets')
+        results['QT'] = qt_raw
+        if np.isnan(results['QT']):
+            return results, Status.DelineateError
 
-# =========================
-# 3. Delineation
-# =========================
+        # QTc 計算, Bazett
+        rr_interval = 60 / results['Ventricular_Rate']
+        results['QTc'] = qt_raw / np.sqrt(rr_interval)
 
-# ======================================
-# Quality check for NeuroKit delineation
-# ======================================
-def check_delineation_quality(waves, min_beats=3):
+    except TypeError as te:
+        print(f"類型錯誤 (可能是 NK2 內部字串拼接問題): {te}")
+        return results, Status.TypeError
+    except Exception as e:
+        print(f"其他 Delineation 錯誤: {e}")
+        return results, Status.DelineateError
 
-    required_keys = [
-        "ECG_R_Peaks",
-        "ECG_QRS_Onsets",
-        "ECG_QRS_Offsets"
-    ]
+    # --- 3. 電軸計算 (Axis Calculation) ---
+    axes = calculate_all_axes(ecg)
+    results = {**results, **axes}
 
-    for k in required_keys:
-        if k not in waves:
-            return False
+    return results, Status.Success
 
-    r = waves["ECG_R_Peaks"]
-    q_on = waves["ECG_QRS_Onsets"]
-    q_off = waves["ECG_QRS_Offsets"]
+def bootstrap_ci(y_true, y_pred, metric_fn, n_boot=1000, alpha=0.05):
 
-    if len(r) < min_beats:
-        return False
+    n = len(y_true)
+    stats = []
 
-    # 有效 QRS 數量
-    valid = np.sum(~np.isnan(q_on) & ~np.isnan(q_off))
+    for _ in range(n_boot):
+        idx = np.random.randint(0, n, n)
 
-    if valid < min_beats:
-        return False
+        yt = y_true[idx]
+        yp = y_pred[idx]
 
-    return True
-
-
-# ======================================
-# Fallback delineation（強化版）
-# ======================================
-def fallback_delineate(signal, rpeaks):
-
-    beats = []
-
-    for r in rpeaks:
-
-        left = int(r - 0.4 * FS)
-        right = int(r + 0.6 * FS)
-
-        if left < 0 or right >= len(signal):
+        try:
+            stat = metric_fn(yt, yp)
+            if not np.isnan(stat):
+                stats.append(stat)
+        except:
             continue
 
-        segment = signal[left:right]
+    if len(stats) < 10:
+        return (np.nan, np.nan)
 
-        grad = np.gradient(segment)
-        abs_grad = np.abs(grad)
+    lower = np.percentile(stats, 100 * (alpha/2))
+    upper = np.percentile(stats, 100 * (1 - alpha/2))
 
-        # QRS detection（限制區間）
-        center = int(0.4 * FS)
+    return (lower, upper)
 
-        qrs_on = np.argmax(abs_grad[:center])
-        qrs_off = center + np.argmax(abs_grad[center:])
-
-        # 避免極端錯誤
-        if qrs_off <= qrs_on:
-            continue
-
-        # -------------------
-        # P wave（更穩定版）
-        # -------------------
-        p_on = None
-        p_start = max(0, qrs_on - int(0.2 * FS))
-        p_end = qrs_on
-
-        if p_end - p_start > 20:
-            p_seg = segment[p_start:p_end]
-
-            # 用能量而不是單點
-            energy = np.convolve(p_seg**2, np.ones(10), mode='same')
-            p_idx = np.argmax(energy)
-
-            p_on = left + p_start + p_idx
-
-        # -------------------
-        # T wave（更穩定版）
-        # -------------------
-        t_off = None
-        t_start = qrs_off
-        t_end = min(len(segment), qrs_off + int(0.4 * FS))
-
-        if t_end - t_start > 20:
-            t_seg = segment[t_start:t_end]
-
-            energy = np.convolve(t_seg**2, np.ones(20), mode='same')
-            t_idx = np.argmax(energy)
-
-            t_off = left + t_start + t_idx
-
-        beats.append({
-            "R": r,
-            "QRS_on": left + qrs_on,
-            "QRS_off": left + qrs_off,
-            "P_on": p_on,
-            "T_off": t_off
-        })
-
-    return beats
-
-
-# ======================================
-# 主函式
-# ======================================
-def delineate_beats(signal, rpeaks):
-
-    # ---------------------------
-    # 1. NeuroKit delineation
-    # ---------------------------
-    try:
-        signals, waves = nk.ecg_delineate(
-            signal,
-            rpeaks,
-            sampling_rate=FS,
-            method="dwt"
-        )
-
-        if check_delineation_quality(waves):
-
-            beats = []
-
-            r = waves["ECG_R_Peaks"]
-            q_on = waves["ECG_QRS_Onsets"]
-            q_off = waves["ECG_QRS_Offsets"]
-            p_on = waves.get("ECG_P_Onsets", None)
-            t_off = waves.get("ECG_T_Offsets", None)
-
-            for i in range(len(r)):
-
-                beats.append({
-                    "R": r[i],
-                    "QRS_on": q_on[i] if i < len(q_on) else np.nan,
-                    "QRS_off": q_off[i] if i < len(q_off) else np.nan,
-                    "P_on": p_on[i] if (p_on is not None and i < len(p_on)) else np.nan,
-                    "T_off": t_off[i] if (t_off is not None and i < len(t_off)) else np.nan
-                })
-
-            return beats
-
-    except Exception:
-        pass
-
-    # ---------------------------
-    # 2. fallback（關鍵）
-    # ---------------------------
-    return fallback_delineate(signal, rpeaks)
-
-def delineate_beats_custom(signal, rpeaks):
-
-    beats = []
-
-    for r in rpeaks:
-
-        # window around R
-        left = int(r - 0.4 * FS)
-        right = int(r + 0.6 * FS)
-
-        if left < 0 or right >= len(signal):
-            continue
-
-        segment = signal[left:right]
-
-        # QRS onset/offset
-        grad = np.gradient(segment)
-        abs_grad = np.abs(grad)
-
-        qrs_on = np.argmax(abs_grad[:int(0.4*FS)])
-        qrs_off = int(0.4*FS) + np.argmax(abs_grad[int(0.4*FS):])
-
-        # P wave (前 200 ms)
-        p_region = segment[qrs_on-150:qrs_on] if qrs_on > 150 else None
-        p_on = None
-
-        if p_region is not None and len(p_region) > 20:
-            p_on = left + (qrs_on - len(p_region)) + np.argmax(np.abs(p_region))
-
-        # T wave (後 400 ms)
-        t_region = segment[qrs_off:qrs_off+200] if qrs_off+200 < len(segment) else None
-        t_off = None
-
-        if t_region is not None and len(t_region) > 20:
-            t_off = left + qrs_off + np.argmax(np.abs(t_region))
-
-        beats.append({
-            "R": r,
-            "QRS_on": left + qrs_on,
-            "QRS_off": left + qrs_off,
-            "P_on": p_on,
-            "T_off": t_off
-        })
-
-    return beats
-
-
-# =========================
-# 4. Feature extraction
-# =========================
-def compute_features(beats):
-
-    if len(beats) < 3:
-        return None
-
-    RR = np.diff([b["R"] for b in beats]) / FS
-    ventricular_rate = 60 / np.mean(RR)
-
-    pr_list = []
-    qrs_list = []
-    qt_list = []
-
-    for b in beats:
-        if b["P_on"] is not None:
-            pr = (b["QRS_on"] - b["P_on"]) / FS
-            pr_list.append(pr)
-
-        qrs = (b["QRS_off"] - b["QRS_on"]) / FS
-        qrs_list.append(qrs)
-
-        if b["T_off"] is not None:
-            qt = (b["T_off"] - b["QRS_on"]) / FS
-            qt_list.append(qt)
-
-    def safe_mean(x):
-        return np.nan if len(x) == 0 else np.mean(x)
-
-    PR = safe_mean(pr_list)
-    QRS = safe_mean(qrs_list)
-    QT = safe_mean(qt_list)
-
-    QTc = QT / np.sqrt(np.mean(RR)) if QT is not np.nan else np.nan
-
-    return {
-        "HR": ventricular_rate,
-        "PR": PR,
-        "QRS": QRS,
-        "QT": QT,
-        "QTc": QTc
-    }
-
-
-# =========================
-# 5. Axis calculation (multi-lead)
-# =========================
-def compute_axis(leads):
-
-    I = leads["I"]
-    aVF = leads["aVF"]
-
-    r_I = np.max(I) - np.min(I)
-    r_aVF = np.max(aVF) - np.min(aVF)
-
-    axis = np.degrees(np.arctan2(r_aVF, r_I))
-
-    return axis
-
-
-def extract_wave_segments(ecg, beats, wave_type):
-
-    segments = []
-
-    for b in beats:
-
-        if wave_type == "P" and b["P_on"] is not None:
-            start = b["P_on"]
-            end = b["QRS_on"]
-
-        elif wave_type == "QRS":
-            start = b["QRS_on"]
-            end = b["QRS_off"]
-
-        elif wave_type == "T" and b["T_off"] is not None:
-            start = b["QRS_off"]
-            end = b["T_off"]
-
-        else:
-            continue
-
-        if start is None or end is None:
-            continue
-
-        if end > start:
-            segments.append(ecg[start:end])
-
-    return segments
-
-def compute_wave_axis(leads, beats, wave_type):
-
-    lead_I = leads["I"]
-    lead_aVF = leads["aVF"]
-    #lead_I = preprocess(lead_I)
-    #lead_aVF = preprocess(lead_aVF)
-
-    seg_I = extract_wave_segments(lead_I, beats, wave_type)
-    seg_aVF = extract_wave_segments(lead_aVF, beats, wave_type)
-
-    if len(seg_I) == 0 or len(seg_aVF) == 0:
-        return np.nan  # 👉 P axis 常見會 NaN（AF）
-
-    amp_I = np.mean([np.sum(s) for s in seg_I])
-    amp_aVF = np.mean([np.sum(s) for s in seg_aVF])
-
-    axis = np.degrees(np.arctan2(amp_aVF, amp_I))
-
-    return axis
-
-def compute_all_axes(leads, beats):
-
-    P_axis = compute_wave_axis(leads, beats, "P")
-    R_axis = compute_wave_axis(leads, beats, "QRS")
-    T_axis = compute_wave_axis(leads, beats, "T")
-
-    return {
-        "P_axis": P_axis,
-        "R_axis": R_axis,
-        "T_axis": T_axis
-    }
-
-
-
-# =========================
-# 6. Metrics
-# =========================
 def evaluate(y_true, y_pred):
     PARAM_NAMES = [
         "ventricular_rate",
@@ -410,7 +213,7 @@ def evaluate(y_true, y_pred):
         if np.sum(mask_num) > 0:
             yt_num = yt[mask_num]
             yp_num = yp[mask_num]
-
+            '''
             param_result["MAE"] = mean_absolute_error(yt_num, yp_num)
             param_result["RMSE"] = np.sqrt(mean_squared_error(yt_num, yp_num))
 
@@ -419,11 +222,61 @@ def evaluate(y_true, y_pred):
                 param_result["R2"] = r2_score(yt_num, yp_num)
             else:
                 param_result["R2"] = np.nan
+            '''
+            # -------------------------
+            # Regression metrics
+            # -------------------------
+            mae = mean_absolute_error(yt_num, yp_num)
+            rmse = np.sqrt(mean_squared_error(yt_num, yp_num))
+
+            if len(yt_num) > 1:
+                r2 = r2_score(yt_num, yp_num)
+            else:
+                r2 = np.nan
+
+            param_result["MAE"] = mae
+            param_result["RMSE"] = rmse
+            param_result["R2"] = r2
+
+            # -------------------------
+            # 🔥 Bootstrap CI（關鍵）
+            # -------------------------
+            mae_ci = bootstrap_ci(
+                yt_num, yp_num,
+                lambda a, b: mean_absolute_error(a, b)
+            )
+
+            rmse_ci = bootstrap_ci(
+                yt_num, yp_num,
+                lambda a, b: np.sqrt(mean_squared_error(a, b))
+            )
+
+            def safe_r2(a, b):
+                if len(a) > 1:
+                    return r2_score(a, b)
+                else:
+                    return np.nan
+
+            r2_ci = bootstrap_ci(yt_num, yp_num, safe_r2)
+
+            param_result["MAE_CI95"] = mae_ci
+            param_result["RMSE_CI95"] = rmse_ci
+            param_result["R2_CI95"] = r2_ci
+
+            param_result["N"] = len(yt_num)
+            param_result["N_total"] = len(yt)
+            param_result["N_nan_dropped"] = len(yt) - len(yt_num)
 
         else:
             param_result["MAE"] = np.nan
             param_result["RMSE"] = np.nan
             param_result["R2"] = np.nan
+            param_result["MAE_CI95"] = np.nan
+            param_result["RMSE_CI95"] = np.nan
+            param_result["R2_CI95"] = np.nan
+            param_result["N"] = np.nan
+            param_result["N_total"] = np.nan
+            param_result["N_nan_dropped"] = np.nan
 
         # -------------------------
         # 2. NaN classification metrics
@@ -471,7 +324,16 @@ def evaluate(y_true, y_pred):
 
     return results
 
-def run_rule_based_pipeline(data_dir, fs):
+def four_tile(lead):
+    arr = np.array(lead)
+    target_len = 1250
+    pad_len = max(0, target_len - len(arr))
+
+    arr_padded = np.pad(arr, (0, pad_len), mode='constant', constant_values=0.0)
+    arr_4x = np.tile(arr_padded, 4)
+    return arr_4x
+
+def run_rule_based_pipeline(data_dir):
 
     fail_counter = defaultdict(int)
     total_files = 0
@@ -498,13 +360,9 @@ def run_rule_based_pipeline(data_dir, fs):
 
         try:
             ecg, labels = parse_ecg_file(filepath)
-
-            # -------- 選擇 lead --------
-            signal = ecg.get("longII", None)
-            #signal = preprocess(signal)
-
-            if signal is None or len(signal) < fs:
-                fail_counter["no_signal"] += 1
+            if np.isnan(labels['Pr']) or np.isnan(labels['Paxis']):
+                print(F'Skipping {filepath} for nan in PR or P_axis')
+                fail_counter['pr_paxis_nan'] += 1
                 continue
 
             # -------- GT --------
@@ -512,17 +370,24 @@ def run_rule_based_pipeline(data_dir, fs):
                 labels[k] for k in LABEL_KEYS
             ], dtype=np.float32)
 
-            # -------- R peak --------
-            r_peaks = detect_r_peaks(signal)
+            final_report, status = calculate_ecg_metrics(ecg)
+            if status != Status.Success:
+                fail_counter['any_error'] += 1
+                if status == Status.DelineateError:
+                    fail_counter['delineate_error'] += 1
+                elif status == Status.RPeakError:
+                    fail_counter['r_peak_error'] += 1
+                elif status == Status.TypeError:
+                    fail_counter['type_error'] += 1
+                else:
+                    fail_counter['unknown_error'] += 1
 
-            # -------- delineation --------
-            beats = delineate_beats(signal, r_peaks)
+                continue  # skip into next file
 
-            # -------- compute --------
-            results = compute_features(beats)  # HR, PR, QRS, QT, QTc
-            axes = compute_all_axes(ecg, beats)  # P_axis, R_axis, T_axis
 
-            pred = list(results.values()) + list(axes.values()) # "Hr", "Pr", "Qrs", "Qt", "Qtc", "Paxis", "Raxis", "Taxis"
+            pred = [final_report['Ventricular_Rate'], final_report['PR_interval'], final_report['QRS_duration'],
+                    final_report['QT'], final_report['QTc'],
+                    final_report['P_axis'], final_report['R_axis'], final_report['T_axis']]
 
             all_pred.append(pred)
             all_true.append(gt_value)
@@ -530,13 +395,20 @@ def run_rule_based_pipeline(data_dir, fs):
             success_files += 1
 
         except Exception as e:
+            fail_counter['any_error'] += 1
             fail_counter["parse_error"] += 1
             continue
 
     results = evaluate(all_true, all_pred)
 
+    print(F'success/total: {success_files}/{total_files}, {float(success_files)/float(total_files)*100:.2f}%')
+    print('Fail reasons:', fail_counter)
+    print(pd.DataFrame([results]).T)
+
     for k, v in results.items():
         print(f"{k}: {v}")
 
 if __name__ == "__main__":
-    run_rule_based_pipeline('../ecg_data_test', FS)
+    run_rule_based_pipeline('../ecg_data_test')
+
+
