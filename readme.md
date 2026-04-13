@@ -172,7 +172,7 @@ In addition to regression tasks, DualResNetECG effectively identified the **exis
 
 ### 🔹 4. Clinical Implications
 
-The strong performance of DualResNetECG supports its applicability in:
+The performance of DualResNetECG supports its applicability in:
 - Automated ECG interpretation.
 - Large-scale digitization and analysis of archival ECG data.
 - Clinical decision support systems.
