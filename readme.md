@@ -88,11 +88,17 @@ DualResNetECG is a dual-stream residual neural network designed for comprehensiv
 
 ### The model jointly predicts:
 - ECG quantitative parameters (regression)
+  - Ventricular rate
+  - PR interval
+  - QRS duration
+  - QT
+  - QTc
+  - P-wave axis
+  - R-wave axis
+  - T-wave axis
 - Existence indicators for key clinical features, including:
-- PR interval
-- P-wave axis
-- QRS-related parameters
-- Other clinically relevant ECG intervals and axes
+  - PR interval
+  - P-wave axis
 
 ## 📊 DualResNetECG Performance
 
