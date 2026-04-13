@@ -26,7 +26,7 @@ Unlike conventional approaches relying on rasterized image processing, this fram
 
 ### 🔹 DualResNetECG Deep Learning Model
 - Dual-input feature learning:
-  - 12-lead ECG segments (2.5 seconds)
+  - 12-lead ECG segments (2.5 seconds each)
   - Long lead II rhythm strip (10 seconds)
 - Dual-branch residual network architecture incorporating Squeeze-and-Excitation (SE) blocks
 - Multi-task learning framework:
