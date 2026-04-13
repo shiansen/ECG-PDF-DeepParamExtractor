@@ -36,7 +36,7 @@ Unlike conventional approaches relying on rasterized image processing, this fram
 - ├── ECGPdfExtractor/           # C# tool for extracting vector-based ECG signals from PDF files
 - ├── ECGPdfExtractor_exe/       # Precompiled executable for ECG extraction
 - ├── deep_learning_models/      # PyTorch implementation of DualResNetECG and pretrained model weights
-- ├── MUSE-ECG-PDF-examples/     # Sample ECG PDF files for validation
+- ├── MUSE-ECG-PDF-examples/     # Sample ECG PDF files for validation and demostration
 - ├── ecg_data_test/             # 1,000 extracted ECG time-series samples for testing
 - └── README.md                  # Project documentation
 
