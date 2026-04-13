@@ -77,7 +77,7 @@ ECGPdfExtractor.sln
 ## Deep Learning: DualResNetECG
 ### Model Overview
 
-DualResNetECG is a dual-stream residual neural network designed for comprehensive ECG parameter prediction. By integrating complementary feature representations, the architecture improves both regression accuracy and classification reliability. The pretrained model weights were derived from training on 50,000 ECG signals reconstructed from vector-based ECG PDF reports using the ECGPdfExtractor.
+DualResNetECG is a dual-stream residual neural network designed for comprehensive ECG parameter prediction. By integrating complementary feature representations, the architecture improves both regression accuracy and classification reliability. The pretrained model weights were derived from training on 45,000 ECG signals reconstructed from vector-based ECG PDF reports using the ECGPdfExtractor.
 
 ### Architecture Design
 
