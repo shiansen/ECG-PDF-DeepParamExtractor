@@ -1,5 +1,9 @@
 # MUSE ECG PDF: High-Precision Signal Extraction and DualResNetECG for Multi-Parameter Prediction
 
+<div align="center">
+  <img src="./deep_learning_models/plots/ecg.png" width="100%">
+</div>
+
 ## Overview
 
 This repository provides a complete end-to-end framework for clinical electrocardiogram (ECG) analysis, including:
