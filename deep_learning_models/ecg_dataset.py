@@ -120,7 +120,7 @@ class ECGDataset(Dataset):
         value = np.array(value, dtype=np.float32)
         exist = np.array(exist, dtype=np.float32)
 
-        # 🔥 -------- Label normalization --------
+        # -------- Label normalization --------
         if self.label_normalizer is not None:
             # normalize
             value_norm = self.label_normalizer.transform(value)
