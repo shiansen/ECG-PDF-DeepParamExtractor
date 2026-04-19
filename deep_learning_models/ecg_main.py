@@ -903,7 +903,7 @@ def main(model_name, test_only=False):
 
 
             if val_mae < best_val_mae:
-                print("🔥 New best model! Saving...")
+                print("New best model! Saving...")
                 best_val_mae = val_mae
                 patience_counter = 0
 
@@ -919,7 +919,7 @@ def main(model_name, test_only=False):
                 print(f"Patience: {patience_counter}/{PATIENCE}")
 
                 if patience_counter >= PATIENCE:
-                    print("⛔ Early stopping")
+                    print("Early stopping")
                     break
 
     # ===== FINAL TEST =====
