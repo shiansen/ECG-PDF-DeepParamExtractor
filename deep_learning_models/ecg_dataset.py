@@ -120,12 +120,12 @@ class ECGDataset(Dataset):
         value = np.array(value, dtype=np.float32)
         exist = np.array(exist, dtype=np.float32)
 
-        # 🔥 -------- Label normalization（關鍵）--------
+        # 🔥 -------- Label normalization --------
         if self.label_normalizer is not None:
-            # 先 normalize
+            # normalize
             value_norm = self.label_normalizer.transform(value)
 
-            # ⚠️ 非常重要：只保留存在的 label
+            # important, keep existent label
             value = value_norm * exist
 
         return {
@@ -136,7 +136,6 @@ class ECGDataset(Dataset):
         }
 
     def _normalize(self, sig):
-        # robust normalization（避免 outlier）
         median = np.median(sig)
         mad = np.median(np.abs(sig - median)) + 1e-6
         sig = (sig - median) / mad
@@ -180,7 +179,7 @@ class LabelNormalizer:
                 self.mean[i] = values[valid, i].mean()
                 self.std[i] = values[valid, i].std() + 1e-6
             else:
-                # fallback（避免全部 missing）
+                # fallback
                 self.mean[i] = 0
                 self.std[i] = 1
 

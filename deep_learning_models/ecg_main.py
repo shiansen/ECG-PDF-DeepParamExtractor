@@ -75,7 +75,7 @@ def compute_exist_metrics2(pred_exist, gt_exist):
             "Recall": rec,
             "Specificity": spec,
             "F1": f1,
-            "NPV": npv,        # 預測「沒有 P wave」
+            "NPV": npv,        # predictive for 「no P wave」
             "AUROC": auc,
             "AUPRC": auprc
         }
@@ -87,7 +87,7 @@ def compute_exist_metrics(pred_exist, gt_exist):
 
     pred_bin = (pred_exist > 0.5).astype(int)
 
-    # 👉 只關心 PR (index=1) & Paxis (index=5)
+    # 👉 Only focusing PR (index=1) & Paxis (index=5)
     TARGET_INDEX = {
         "PR": 1,
         "Paxis": 5
@@ -117,7 +117,7 @@ def compute_exist_metrics(pred_exist, gt_exist):
         # -------------------------
         valid_mask = ~np.isnan(y_true) & ~np.isnan(y_prob)
 
-        if valid_mask.sum() > 10:  # 👉 至少要有樣本數
+        if valid_mask.sum() > 10:  # minimal sample numbers
 
             yt = y_true[valid_mask]
             yp = y_prob[valid_mask]
@@ -150,7 +150,7 @@ def compute_exist_metrics(pred_exist, gt_exist):
             "AUROC": auc,
             "AUPRC": auprc,
 
-            # 👉 加這個（後面畫圖會用）
+            # for plots
             "y_true": y_true,
             "y_prob": y_prob
         }
@@ -170,7 +170,7 @@ def plot_exist_curves(exist_metrics, save_dir=None):
         y_prob = data["y_prob"]
 
         # -------------------------
-        # 🔥 關鍵：移除 NaN
+        # 🔥 Key point: remove NaN
         # -------------------------
         valid_mask = ~np.isnan(y_true) & ~np.isnan(y_prob)
 
@@ -182,7 +182,7 @@ def plot_exist_curves(exist_metrics, save_dir=None):
         yp = y_prob[valid_mask]
 
         # -------------------------
-        # 必須有兩類
+        # At least 2
         # -------------------------
         if len(np.unique(yt)) < 2:
             print(f"{name}: only one class after filtering, skip")
@@ -256,7 +256,7 @@ def bootstrap_ci(y_true, y_pred, func, n_boot=1000, alpha=0.05):
 
 
 # =========================
-# 主函式（升級版）
+# Main Function
 # =========================
 def compute_value_metrics(pred, gt, exist, n_boot=1000):
 
@@ -284,7 +284,7 @@ def compute_value_metrics(pred, gt, exist, n_boot=1000):
         yp = y_pred[valid_mask]
 
         # -------------------------
-        # 基本 metrics
+        # Basic metrics
         # -------------------------
         errors = yt - yp
 
@@ -309,7 +309,7 @@ def compute_value_metrics(pred, gt, exist, n_boot=1000):
         r2_ci = bootstrap_ci(yt, yp, safe_r2, n_boot)
 
         # -------------------------
-        # 結果整理
+        # Results
         # -------------------------
         results[name] = {
             "MAE": mae,
@@ -339,7 +339,7 @@ def compute_value_metrics3(pred, gt, exist):
     for i, name in enumerate(LABEL_NAMES):
 
         # -------------------------
-        # 1. 基本 mask（應該存在）
+        # 1. Basic mask
         # -------------------------
         mask_exist = exist[:, i] == 1
 
@@ -350,7 +350,7 @@ def compute_value_metrics3(pred, gt, exist):
         y_pred = pred[:, i]
 
         # -------------------------
-        # 2. 移除 NaN（關鍵修正）
+        # 2. Remove NaN
         # -------------------------
         valid_mask = (
             mask_exist &
@@ -377,7 +377,7 @@ def compute_value_metrics3(pred, gt, exist):
             r2 = np.nan
 
         # -------------------------
-        # 4. 統計資訊（建議保留）
+        # 4. Statistics
         # -------------------------
         results[name] = {
             "MAE": mae,
@@ -386,33 +386,6 @@ def compute_value_metrics3(pred, gt, exist):
             "N_total_exist": int(mask_exist.sum()),
             "N_used": int(valid_mask.sum()),
             "N_dropped_nan": int(mask_exist.sum() - valid_mask.sum())
-        }
-
-    return results
-
-def compute_value_metrics2(pred, gt, exist):
-    results = {}
-
-    for i, name in enumerate(LABEL_NAMES):
-        mask = exist[:, i] == 1
-
-        if mask.sum() < 5:
-            continue
-
-        y_true = gt[mask, i]
-        y_pred = pred[mask, i]
-
-        mae = np.mean(np.abs(y_true - y_pred))
-        rmse = np.sqrt(np.mean((y_true - y_pred) ** 2))
-
-        from sklearn.metrics import r2_score
-        r2 = r2_score(y_true, y_pred)
-
-        results[name] = {
-            "MAE": mae,
-            "RMSE": rmse,
-            "R2": r2,
-            "N": int(mask.sum())
         }
 
     return results
@@ -436,7 +409,7 @@ def compute_joint_metrics(pred_exist, gt_exist):
             "TN": int(TN),
             "FP": int(FP),
             "FN": int(FN),
-            "Miss_rate": FN / (TP + FN + 1e-6),  # clinically重要
+            "Miss_rate": FN / (TP + FN + 1e-6),  # clinically important
             "False_alarm": FP / (TN + FP + 1e-6)
         }
 
@@ -607,6 +580,134 @@ def final_test(model, test_loader, device, model_name, label_norm=None):
     print("Paxis exist distribution:", np.bincount(exists_gt[:, 5].astype(int)))
 
 
+def final_test_both(model, test_loader, device, model_name, label_norm=None):
+    model.eval()
+    preds, exists_pred = [], []
+    gts, exists_gt = [], []
+
+    pbar = tqdm(test_loader, desc=f"Test {model_name}", leave=False)
+
+    with torch.no_grad():
+        for batch in pbar:
+            leads = batch["leads"].to(device)
+            longII = batch["longII"].to(device)
+            value = batch["value"].cpu().numpy()
+            exist = batch["exist"].cpu().numpy()
+
+            pred_exist, pred_value = forward_model(model, leads, longII, model_name)
+
+            if label_norm is not None:
+                pred_value = label_norm.inverse(pred_value)
+                value = label_norm.inverse(value)
+
+            preds.append(pred_value.cpu().numpy())
+            exists_pred.append(pred_exist.cpu().numpy())
+            gts.append(value)
+            exists_gt.append(exist)
+
+    preds = np.concatenate(preds)
+    gts = np.concatenate(gts)
+    exists_gt = np.concatenate(exists_gt)
+    exists_pred = np.concatenate(exists_pred)
+
+    # get metrics folder（include y_true and y_prob）
+    exist_metrics = compute_exist_metrics(exists_pred, exists_gt)
+
+    # return exist_metrics for further plots
+    return exist_metrics
+
+
+def plot_comparison_curves(all_model_results, save_dir="plots"):
+    """
+    all_model_results: { "ResNet": resnet_metrics, "ECGFormer": former_metrics }
+    """
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+
+    TARGET_LABELS = ["PR", "Paxis"]
+
+    for label_name in TARGET_LABELS:
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
+
+        if label_name == "PR":
+            title = "PR interval :"
+        elif label_name == "Paxis":
+            title = "P axis :"
+
+        for model_name, metrics in all_model_results.items():
+            if model_name == "resnet":
+                model_name = "DualResnetECG"
+            elif model_name == "ecgformer":
+                model_name = "DualECGFormer"
+
+            data = metrics[label_name]
+            yt = data["y_true"]
+            yp = data["y_prob"]
+
+            # remove NaN
+            valid_mask = ~np.isnan(yt) & ~np.isnan(yp)
+            yt, yp = yt[valid_mask], yp[valid_mask]
+
+            # --- ROC Curve ---
+            fpr, tpr, _ = roc_curve(yt, yp)
+            auc_val = roc_auc_score(yt, yp)
+            ax1.plot(fpr, tpr, label=f"{model_name} (AUC={auc_val:.3f})")
+
+            # --- PR Curve ---
+            precision, recall, _ = precision_recall_curve(yt, yp)
+            auprc_val = average_precision_score(yt, yp)
+            ax2.plot(recall, precision, label=f"{model_name} (AUPRC={auprc_val:.3f})")
+
+        # setup ROC format
+        ax1.plot([0, 1], [0, 1], 'k--')
+        ax1.set_xlabel("False Positive Rate")
+        ax1.set_ylabel("True Positive Rate")
+        ax1.set_title(f"{title} ROC Comparison")
+        ax1.legend()
+        ax1.grid(True)
+
+        # setup PR format
+        ax2.set_xlabel("Recall")
+        ax2.set_ylabel("Precision")
+        ax2.set_title(f"{title} PR Curve Comparison")
+        ax2.legend()
+        ax2.grid(True)
+
+        plt.tight_layout()
+        plt.savefig(f"{save_dir}/{label_name}_comparison.png", dpi=300)
+        plt.show()
+
+
+def run_comparison():
+    device = torch.device("cuda:1") if torch.cuda.is_available() else "cpu"
+    model_names = ["resnet", "ecgformer"]
+    all_results = {}
+
+    # Load Data (only once)
+    print("Loading test data...")
+    test_data_dir = "../ecg_data_test"
+    test_files = get_all_files(test_data_dir)
+    with open("label_norm.pkl", "rb") as f:
+        label_norm = pickle.load(f)
+
+    test_ds = ECGDataset(test_files, label_normalizer=label_norm)
+    test_loader = DataLoader(test_ds, batch_size=256)
+
+    for m_name in model_names:
+        print(f"\nEvaluating {m_name}...")
+        model, _, _ = build_model(m_name, device)
+        checkpoint_path = get_checkpoint_path(m_name)
+
+        checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+        model.load_state_dict(checkpoint["model"])
+
+        # run testing and get metrics
+        metrics = final_test_both(model, test_loader, device, m_name, label_norm)
+        all_results[m_name] = metrics
+
+    # plot comparison
+    plot_comparison_curves(all_results)
+
 def build_model(model_name, device):
 
     if model_name.lower() == "resnet":
@@ -702,47 +803,56 @@ def evaluate(model, loader, device, model_name, label_norm):
 
 def main(model_name, test_only=False):
     # ===== CONFIG =====
-    MODEL_NAME = model_name   # 🔥 改這裡切換模型
-    # 指定使用第1張顯卡 (索引為 0)
-    device = torch.device("cuda:1") if torch.cuda.is_available() else "cpu"
+    MODEL_NAME = model_name
+    device = torch.device("cuda:0") if torch.cuda.is_available() else "cpu"
     MODEL_PATH = get_checkpoint_path(MODEL_NAME)
 
     print(f"\n===== Using model: {MODEL_NAME} =====")
 
-    # -------- load files --------
-    print('Loading train data...')
-    train_data_dir = "../ecg_data_train"
-    train_val_files = get_all_files(train_data_dir)
+    if not test_only:
+        # -------- load files --------
+        print('Loading train data...')
+        train_data_dir = "../ecg_data_train"
+        train_val_files = get_all_files(train_data_dir)
 
-    # -------- split --------
-    train_files, val_files = split_dataset(train_val_files)
+        # -------- split --------
+        train_files, val_files = split_dataset(train_val_files)
 
-    print('Loading test data...')
-    test_data_dir = "../ecg_data_test"
-    test_files = get_all_files(test_data_dir)
-    print(f"Test: {len(test_files)}")
+        # -------- dataset --------
+        if os.path.exists("label_norm.pkl"):
+            print("Load label normalizer...")
+            with open("label_norm.pkl", "rb") as f:
+                label_norm = pickle.load(f)
+        else:
+            print("Fit label normalizer...")
+            train_ds_raw = ECGDataset(train_files, label_normalizer=None)
+            label_norm = LabelNormalizer()
+            label_norm.fit(train_ds_raw)
 
-    # -------- dataset --------
-    if os.path.exists("label_norm.pkl"):
-        print("Load label normalizer...")
-        with open("label_norm.pkl", "rb") as f:
-            label_norm = pickle.load(f)
+            # save
+            with open("label_norm.pkl", "wb") as f:
+                pickle.dump(label_norm, f)
     else:
-        print("Fit label normalizer...")
-        train_ds_raw = ECGDataset(train_files, label_normalizer=None)
-        label_norm = LabelNormalizer()
-        label_norm.fit(train_ds_raw)
+        print('Loading test data...')
+        test_data_dir = "../ecg_data_test"
+        test_files = get_all_files(test_data_dir)
+        print(f"Test: {len(test_files)}")
 
-        # save
-        with open("label_norm.pkl", "wb") as f:
-            pickle.dump(label_norm, f)
+        if os.path.exists("label_norm.pkl"):
+            print("Load label normalizer...")
+            with open("label_norm.pkl", "rb") as f:
+                label_norm = pickle.load(f)
+        else:
+            raise FileNotFoundError(f"Label normalizer 'label_norm.pkl' not found")
 
-    train_ds = ECGDataset(train_files, label_normalizer=label_norm)
-    val_ds = ECGDataset(val_files, label_normalizer=label_norm)
+
+    if not test_only:
+        train_ds = ECGDataset(train_files, label_normalizer=label_norm)
+        val_ds = ECGDataset(val_files, label_normalizer=label_norm)
+        train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True)
+        val_loader   = DataLoader(val_ds, batch_size=BATCH_SIZE)
+
     test_ds = ECGDataset(test_files, label_normalizer=label_norm)
-
-    train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True)
-    val_loader   = DataLoader(val_ds, batch_size=BATCH_SIZE)
     test_loader  = DataLoader(test_ds, batch_size=BATCH_SIZE)
 
     # -------- model --------
@@ -820,5 +930,7 @@ def main(model_name, test_only=False):
     final_test(model, test_loader, device, MODEL_NAME, label_norm)
 
 if __name__ == "__main__":
-    MODEL_NAME = "resnet" # "resnet", "ecgformer" 🔥 改這裡切換模型
+    MODEL_NAME = "resnet" # "resnet", "ecgformer" 🔥 switch model here
     main(MODEL_NAME, test_only=True)
+
+    #run_comparison()

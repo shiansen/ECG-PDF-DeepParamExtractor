@@ -110,7 +110,7 @@ class ResNet1D(nn.Module):
         return x
 
 # -----------------------------
-# 主模型（Dual Input）
+# Main Model（Dual Input）
 # -----------------------------
 class DualResNetECG(nn.Module):
     def __init__(self, d_model=256):
@@ -182,7 +182,7 @@ def loss_fn_resnet(
     if torch.isnan(value_pred).any():
         raise ValueError("value_pred has NaN")
 
-    # -------- clamp uncertainty（🔥關鍵）--------
+    # -------- clamp uncertainty（🔥key point）--------
     logvar = torch.clamp(logvar, -3, 3)
 
     # -------- existence loss --------
@@ -191,19 +191,19 @@ def loss_fn_resnet(
     # -------- regression loss（Huber + uncertainty）--------
     diff = value_pred - value_gt
 
-    # Huber loss（比 MSE 穩定）
+    # Huber loss（more stable than MSE）
     huber = F.smooth_l1_loss(value_pred, value_gt, reduction='none')
 
     precision = torch.exp(-logvar)
 
     reg = precision * huber + logvar
 
-    # -------- mask（只算存在的）--------
+    # -------- mask（calc existed ones only）--------
     reg = reg * exist_gt
 
     # -------- ⭐ label weighting --------
     weights = torch.tensor(
-        [1.0, 1.0, 1.0, 1.2, 1.5, 0.5, 0.5, 0.5],  # 👉 QT / QTc 更重要（臨床）
+        [1.0, 1.0, 1.0, 1.2, 1.5, 0.5, 0.5, 0.5],  # 👉 QT / QTc more important（clinical）
         device=value_gt.device
     )
     reg = reg * weights  # (B, 8)

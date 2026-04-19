@@ -64,7 +64,7 @@ class TransformerBlock(nn.Module):
 
 
 # -----------------------------
-# 主模型（Dual Input）
+# Main Model（Dual Input）
 # -----------------------------
 class DualECGFormer(nn.Module):
     def __init__(self, d_model=128, nhead=4, depth=4):

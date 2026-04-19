@@ -20,36 +20,36 @@ class Status(Enum):
 
 def calculate_all_axes(data_12L_dict, sampling_rate=500):
     """
-    計算 P, R, T 三個軸向
-    data_12L_dict: 需包含 'I' (0-2.5s) 與 'aVF' (2.5-5s) 的 cleaned 訊號
+    Compute P, R, and T electrical axes.
+    data_12L_dict: must include cleaned signals for 'I' (0–2.5s) and 'aVF' (2.5–5s)
     """
     axes = {}
 
     def get_wave_amplitudes(signal, wave_type='R'):
-        # 根據波形類型選擇特徵提取方式
+        # Select feature extraction strategy based on wave type
         if wave_type == 'R':
-            # R軸通常看整個 QRS 的淨振幅 (Max + Min，Min通常是負的S波)
+            # R-axis typically uses net QRS amplitude (Max + Min, where Min is usually the S wave)
             return np.max(signal) + np.min(signal)
         elif wave_type == 'P':
-            # P軸通常較小，取訊號中段排除大波後的局部極大值較準確
-            # 專業做法是取 P-peak 的振幅
+            # P-axis is usually smaller; exclude large waves and use mid-signal local maxima
+            # Professional approach: use P-peak amplitude
             peaks, _ = nk.ecg_peaks(signal, sampling_rate=sampling_rate)
-            # 這裡簡化為取訊號中 90th percentile 作為 P 波強度估計
+            # Simplified: use 95th percentile as an estimate of P-wave strength
             return np.percentile(signal, 95)
         elif wave_type == 'T':
-            # T軸取 T-peak 振幅
+            # T-axis uses T-peak amplitude
             return np.max(signal)
         return 0
 
-    # 取得 Lead I 與 aVF 的特徵
-    # 注意：在 3x4+1 格式中，這兩個導程的時間段是分開的，
-    # 假設傳入的 data_12L_dict['I'] 已經是那 1238 點的資料
+    # Extract features from Lead I and aVF
+    # Note: in 3x4+1 format, these leads are separated in time
+    # Assume data_12L_dict['I'] already contains the correct segment
 
     for wave in ['P', 'R', 'T']:
         val_i = get_wave_amplitudes(data_12L_dict['I'], wave_type=wave)
         val_avf = get_wave_amplitudes(data_12L_dict['aVF'], wave_type=wave)
 
-        # 使用 atan2(Y, X) 計算角度
+        # Compute angle using atan2(Y, X)
         angle = np.degrees(np.arctan2(val_avf, val_i))
         axes[f'{wave}_axis'] = angle
 
@@ -58,16 +58,16 @@ def calculate_all_axes(data_12L_dict, sampling_rate=500):
 
 def robust_get_peaks(signal, sampling_rate):
     """
-    強健型 R 波偵測：嘗試多種演算法確保不回傳空值
+    Robust R-peak detection: tries multiple algorithms to avoid empty output
     """
-    # 嘗試方法清單
+    # List of candidate methods
     methods = ["neurokit", "pantompkins1985", "nabian2018"]
 
     for method in methods:
         try:
             _, info = nk.ecg_peaks(signal, sampling_rate=sampling_rate, method=method)
             r_peaks = info["ECG_R_Peaks"]
-            if len(r_peaks) >= 2:  # 至少需要兩個點才能計算心率
+            if len(r_peaks) >= 2:  # At least two peaks required for heart rate calculation
                 return r_peaks, method
         except Exception:
             continue
@@ -79,41 +79,40 @@ def calculate_ecg_metrics(ecg, sampling_rate=500):
 
     data_long_ii = ecg['longII']
 
-    # 預處理
+    # Preprocessing
     cleaned_long_ii = nk.ecg_clean(data_long_ii, sampling_rate=sampling_rate, method="neurokit")
 
-    # 偵測 R 波並取得索引
+    # Detect R-peaks and obtain indices
     r_peaks, method = robust_get_peaks(cleaned_long_ii, sampling_rate=sampling_rate)
 
-    # 3. 條件分支處理
+    # 3. Conditional branch handling
     if r_peaks.size == 0:
-        #print("Error: 無法偵測到任何 R 波，訊號可能無效或品質過差。")
-        return results, Status.RPeakError  # 直接 empty 的結果，避免後續崩潰
+        #print("Error: Unable to detect R-peaks; signal may be invalid or too noisy.")
+        return results, Status.RPeakError  # Return empty result to prevent downstream crash
 
     peaks_dict = {"ECG_R_Peaks": r_peaks}
 
-    # 強制確保為整數陣列，避免與字串拼接時出錯
+    # Ensure integer array to avoid string concatenation issues
     r_peaks = np.array(r_peaks, dtype=int)
 
-    # 計算心率
-    hr_df = nk.ecg_rate(peaks_dict, sampling_rate=sampling_rate, desired_length=len(cleaned_long_ii))  # could be a list containing nan
-    results['Ventricular_Rate'] = np.nanmean(hr_df)  # RuntimeWarning: Mean of empty slice if hr_df contains nan
+    # Compute heart rate
+    hr_df = nk.ecg_rate(peaks_dict, sampling_rate=sampling_rate, desired_length=len(cleaned_long_ii))  # may contain NaN
+    results['Ventricular_Rate'] = np.nanmean(hr_df)  # warning if all NaN
     if np.isnan(results['Ventricular_Rate']):
         print('hr_df:', hr_df)
         print('R peaks:', r_peaks)
         return results, Status.RPeakError
 
     try:
-        # 使用修正後的 r_peaks 進行區間定位
+        # Use corrected r_peaks for delineation
         _, waves_peak = nk.ecg_delineate(cleaned_long_ii, r_peaks,
                                          sampling_rate=sampling_rate,
                                          method="dwt")
 
-        # 提取特徵點 (注意：Neurokit 的回傳鍵名可能因版本微調，建議先 print(waves_peak.keys()) 檢查)
+        # Extract feature points
         def get_mean_ms(key_start, key_end):
             start = np.array(waves_peak.get(key_start, [np.nan]))
             end = np.array(waves_peak.get(key_end, [np.nan]))
-            # 濾除 nan 並計算差值
             diff = end - start
             if all(math.isnan(x) for x in diff):
                 return np.nan
@@ -122,26 +121,28 @@ def calculate_ecg_metrics(ecg, sampling_rate=500):
         results['PR_interval'] = get_mean_ms('ECG_P_Onsets', 'ECG_R_Onsets')
         if np.isnan(results['PR_interval']):
             return results, Status.DelineateError
+
         results['QRS_duration'] = get_mean_ms('ECG_R_Onsets', 'ECG_R_Offsets')
         if np.isnan(results['QRS_duration']):
             return results, Status.DelineateError
+
         qt_raw = get_mean_ms('ECG_R_Onsets', 'ECG_T_Offsets')
         results['QT'] = qt_raw
         if np.isnan(results['QT']):
             return results, Status.DelineateError
 
-        # QTc 計算, Bazett
+        # QTc calculation (Bazett formula)
         rr_interval = 60 / results['Ventricular_Rate']
         results['QTc'] = qt_raw / np.sqrt(rr_interval)
 
     except TypeError as te:
-        print(f"類型錯誤 (可能是 NK2 內部字串拼接問題): {te}")
+        print(f"Type error (possibly due to NK2 internal string handling): {te}")
         return results, Status.TypeError
     except Exception as e:
-        print(f"其他 Delineation 錯誤: {e}")
+        print(f"Other delineation error: {e}")
         return results, Status.DelineateError
 
-    # --- 3. 電軸計算 (Axis Calculation) ---
+    # --- Axis Calculation ---
     axes = calculate_all_axes(ecg)
     results = {**results, **axes}
 
@@ -185,8 +186,8 @@ def evaluate(y_true, y_pred):
         "T_axis"
     ]
 
-    y_true = np.array(y_true)   # (B, 8)
-    y_pred = np.array(y_pred)   # (B, 8)
+    y_true = np.array(y_true)
+    y_pred = np.array(y_pred)
 
     assert y_true.shape == y_pred.shape
     assert y_true.shape[1] == len(PARAM_NAMES)
@@ -194,7 +195,7 @@ def evaluate(y_true, y_pred):
     results = {}
 
     # =========================================
-    # 逐參數評估
+    # Per-parameter evaluation
     # =========================================
     for i, name in enumerate(PARAM_NAMES):
 
@@ -213,19 +214,7 @@ def evaluate(y_true, y_pred):
         if np.sum(mask_num) > 0:
             yt_num = yt[mask_num]
             yp_num = yp[mask_num]
-            '''
-            param_result["MAE"] = mean_absolute_error(yt_num, yp_num)
-            param_result["RMSE"] = np.sqrt(mean_squared_error(yt_num, yp_num))
 
-            # R2 needs at least 2 samples
-            if len(yt_num) > 1:
-                param_result["R2"] = r2_score(yt_num, yp_num)
-            else:
-                param_result["R2"] = np.nan
-            '''
-            # -------------------------
-            # Regression metrics
-            # -------------------------
             mae = mean_absolute_error(yt_num, yp_num)
             rmse = np.sqrt(mean_squared_error(yt_num, yp_num))
 
@@ -238,9 +227,7 @@ def evaluate(y_true, y_pred):
             param_result["RMSE"] = rmse
             param_result["R2"] = r2
 
-            # -------------------------
-            # 🔥 Bootstrap CI（關鍵）
-            # -------------------------
+            # Bootstrap CI
             mae_ci = bootstrap_ci(
                 yt_num, yp_num,
                 lambda a, b: mean_absolute_error(a, b)
@@ -284,7 +271,7 @@ def evaluate(y_true, y_pred):
         yt_nan = np.isnan(yt).astype(int)
         yp_nan = np.isnan(yp).astype(int)
 
-        # 只有當 y_true 有 NaN 才有意義
+        # Only meaningful if y_true contains NaN
         if np.unique(yt_nan).size > 1:
 
             param_result["accuracy"] = accuracy_score(yt_nan, yp_nan)
@@ -299,7 +286,6 @@ def evaluate(y_true, y_pred):
                 yt_nan, yp_nan, zero_division=0
             )
 
-            # AUROC / AUPRC（需要 probabilistic，但這裡用 binary）
             try:
                 param_result["AUROC"] = roc_auc_score(yt_nan, yp_nan)
             except:
@@ -311,14 +297,12 @@ def evaluate(y_true, y_pred):
                 param_result["AUPRC"] = np.nan
 
         else:
-            # 沒有 NaN → classification 無意義
             param_result["accuracy"] = np.nan
             param_result["precision"] = np.nan
             param_result["recall"] = np.nan
             param_result["f1"] = np.nan
             param_result["AUROC"] = np.nan
             param_result["AUPRC"] = np.nan
-
 
         results[name] = param_result
 
@@ -341,7 +325,7 @@ def run_rule_based_pipeline(data_dir):
 
     file_list = []
 
-    # -------- 收集所有 txt --------
+    # -------- Collect all txt files --------
     for root, _, files in os.walk(data_dir):
         for f in files:
             if f.endswith(".txt"):
@@ -354,7 +338,7 @@ def run_rule_based_pipeline(data_dir):
 
     pbar = tqdm(file_list, desc="Extract Parameters", leave=False)
 
-    # -------- 主迴圈 --------
+    # -------- Main loop --------
     for filepath in pbar:
         total_files += 1
 
@@ -365,7 +349,7 @@ def run_rule_based_pipeline(data_dir):
                 fail_counter['pr_paxis_nan'] += 1
                 continue
 
-            # -------- GT --------
+            # -------- Ground Truth --------
             gt_value = np.array([
                 labels[k] for k in LABEL_KEYS
             ], dtype=np.float32)
@@ -382,8 +366,7 @@ def run_rule_based_pipeline(data_dir):
                 else:
                     fail_counter['unknown_error'] += 1
 
-                continue  # skip into next file
-
+                continue
 
             pred = [final_report['Ventricular_Rate'], final_report['PR_interval'], final_report['QRS_duration'],
                     final_report['QT'], final_report['QTc'],
@@ -410,5 +393,3 @@ def run_rule_based_pipeline(data_dir):
 
 if __name__ == "__main__":
     run_rule_based_pipeline('../ecg_data_test')
-
-

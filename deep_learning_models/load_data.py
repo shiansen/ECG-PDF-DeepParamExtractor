@@ -11,7 +11,7 @@ def get_all_files(data_dir):
 
 def split_dataset(file_list, seed=42):
 
-    # -------- shuffle（確保隨機性）--------
+    # -------- shuffle（Ensure randomness）--------
     rng = np.random.RandomState(seed)
     file_list = np.array(file_list)
     rng.shuffle(file_list)
