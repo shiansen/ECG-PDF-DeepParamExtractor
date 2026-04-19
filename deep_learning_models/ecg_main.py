@@ -87,7 +87,7 @@ def compute_exist_metrics(pred_exist, gt_exist):
 
     pred_bin = (pred_exist > 0.5).astype(int)
 
-    # 👉 Only focusing PR (index=1) & Paxis (index=5)
+    # Only focusing PR (index=1) & Paxis (index=5)
     TARGET_INDEX = {
         "PR": 1,
         "Paxis": 5
@@ -170,7 +170,7 @@ def plot_exist_curves(exist_metrics, save_dir=None):
         y_prob = data["y_prob"]
 
         # -------------------------
-        # 🔥 Key point: remove NaN
+        # Key point: remove NaN
         # -------------------------
         valid_mask = ~np.isnan(y_true) & ~np.isnan(y_prob)
 
@@ -541,10 +541,10 @@ def final_test(model, test_loader, device, model_name, label_norm=None):
             value = batch["value"].cpu().numpy()
             exist = batch["exist"].cpu().numpy()
 
-            # 🔥 unified forward
+            # unified forward
             pred_exist, pred_value = forward_model(model, leads, longII, model_name)
 
-            # 🔥 inverse normalization
+            # inverse normalization
             if label_norm is not None:
                 pred_value = label_norm.inverse(pred_value)
                 value = label_norm.inverse(value)
@@ -777,7 +777,7 @@ def evaluate(model, loader, device, model_name, label_norm):
 
             pred_exist, pred_value, _ = model(leads, longII)
 
-            # 🔥 inverse normalization
+            # inverse normalization
             pred_value = label_norm.inverse(pred_value)
             value = label_norm.inverse(value)
 
@@ -930,7 +930,7 @@ def main(model_name, test_only=False):
     final_test(model, test_loader, device, MODEL_NAME, label_norm)
 
 if __name__ == "__main__":
-    MODEL_NAME = "resnet" # "resnet", "ecgformer" 🔥 switch model here
+    MODEL_NAME = "resnet" # "resnet", "ecgformer": switch model here
     main(MODEL_NAME, test_only=True)
 
     #run_comparison()
