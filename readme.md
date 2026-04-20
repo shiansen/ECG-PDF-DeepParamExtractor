@@ -77,7 +77,17 @@ ECGPdfExtractor.sln
 ## Deep Learning: DualResNetECG
 ### Model Overview
 
-DualResNetECG is a dual-stream residual neural network designed for comprehensive ECG parameter prediction. By integrating complementary feature representations, the architecture improves both regression accuracy and classification reliability. The pretrained model weights were derived from training on 45,000 ECG signals reconstructed from vector-based ECG PDF reports using the ECGPdfExtractor.
+### DualResNetECG
+
+DualResNetECG is a multi-task deep learning architecture designed to jointly model ECG waveform reconstruction and clinical parameter prediction.
+
+Key features include:
+- **Dual-branch architecture** for capturing complementary representations
+- **Residual learning** for robust signal reconstruction
+- **Multi-task prediction** of 8 clinically relevant ECG parameters
+- **Improved generalization** over rule-based approaches
+
+In our experiments, DualResNetECG consistently outperformed the rule-based NeuroKit2 framework across most ECG parameters, demonstrating both higher accuracy and robustness.
 
 ### Architecture Design
 
@@ -103,6 +113,14 @@ DualResNetECG is a dual-stream residual neural network designed for comprehensiv
 ## 📊 DualResNetECG Performance
 
 The **DualResNetECG** model demonstrated robust and accurate performance in predicting clinically relevant ECG parameters. Its effectiveness was evaluated across both **regression tasks** (quantitative parameter estimation) and **classification tasks** (detection of physiological parameter existence).
+
+## Results
+
+DualResNetECG achieves:
+
+- Lower MAE and RMSE across ECG parameters
+- Improved robustness in noisy or partially missing signals
+- Superior performance compared to rule-based methods (NeuroKit2)
 
 ### 🔹 1. Quantitative ECG Parameter Estimation
 
@@ -170,14 +188,11 @@ In addition to regression tasks, DualResNetECG effectively identified the **exis
 - **High specificity and NPV**, enabling reliable identification of physiologically undefined parameters.
 - **Strong discriminative ability**, as evidenced by AUROC values approaching 1.0.
 
-### 🔹 4. Clinical Implications
+### 🔹 4. Contributions
 
-The performance of DualResNetECG supports its applicability in:
-- Automated ECG interpretation.
-- Large-scale digitization and analysis of archival ECG data.
-- Clinical decision support systems.
-- Research applications requiring accurate and reproducible ECG parameter extraction.
-
+- A automated pipeline for reconstructing ECG signals from vector-based MUSE PDF reports
+- A novel deep learning architecture (DualResNetECG) for multi-task ECG parameter prediction
+- Demonstration of superior performance over traditional rule-based methods
 ---
 
 *Abbreviations: MAE, Mean Absolute Error; RMSE, Root Mean Square Error; R², coefficient of determination; AUROC, Area Under the Receiver Operating Characteristic Curve; AUPRC, Area Under the Precision–Recall Curve; NPV, Negative Predictive Value.*
