@@ -116,8 +116,6 @@ The **DualResNetECG** model demonstrated robust and accurate performance in pred
 
 ## Results
 
-DualResNetECG achieves:
-
 - Lower MAE and RMSE across ECG parameters
 - Improved robustness in noisy or partially missing signals
 - Superior performance compared to rule-based methods (NeuroKit2)
@@ -223,7 +221,9 @@ Step 1: ECG Signal Extraction
 
 Place ECG PDF files into a directory and run:
 
+```bash
 ./ECGPdfExtractor_exe/ECGPdfExtractor.exe
+```
 
 The program will automatically process all files and output reconstructed ECG signals.
 
@@ -231,9 +231,10 @@ Step 2: Model Training / Inference
 The DualResNetECG model was trained on the full institutional ECG dataset under secure on-premises conditions. Due to privacy-preserving governance restrictions, training data cannot be redistributed.
 
 Navigate to the deep learning module:
-
+```bash
 cd deep_learning_models
 python ecg_main.py
+```
 
 ## Acknowledgements
 
