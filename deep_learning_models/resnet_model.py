@@ -182,7 +182,7 @@ def loss_fn_resnet(
     if torch.isnan(value_pred).any():
         raise ValueError("value_pred has NaN")
 
-    # -------- clamp uncertainty（🔥key point）--------
+    # -------- clamp uncertainty（key point）--------
     logvar = torch.clamp(logvar, -3, 3)
 
     # -------- existence loss --------
@@ -201,7 +201,7 @@ def loss_fn_resnet(
     # -------- mask（calc existed ones only）--------
     reg = reg * exist_gt
 
-    # -------- ⭐ label weighting --------
+    # -------- label weighting --------
     weights = torch.tensor(
         [1.0, 1.0, 1.0, 1.2, 1.5, 0.5, 0.5, 0.5],  # QT / QTc more important（clinical）
         device=value_gt.device
