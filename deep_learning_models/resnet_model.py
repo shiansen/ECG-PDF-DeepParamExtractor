@@ -203,7 +203,7 @@ def loss_fn_resnet(
 
     # -------- ⭐ label weighting --------
     weights = torch.tensor(
-        [1.0, 1.0, 1.0, 1.2, 1.5, 0.5, 0.5, 0.5],  # 👉 QT / QTc more important（clinical）
+        [1.0, 1.0, 1.0, 1.2, 1.5, 0.5, 0.5, 0.5],  # QT / QTc more important（clinical）
         device=value_gt.device
     )
     reg = reg * weights  # (B, 8)
