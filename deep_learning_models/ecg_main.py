@@ -1,4 +1,5 @@
 import os
+import random
 from tqdm import tqdm
 import time
 import torch
@@ -20,67 +21,22 @@ from ecgformer_model import DualECGFormer
 # ====== CONFIG ======
 BATCH_SIZE = 256
 LR = 1e-4
-EPOCHS = 5
+EPOCHS = 100
 PATIENCE = 10
 
 LABEL_NAMES = ["HR","PR","QRS","QT","QTc","Paxis","Raxis","Taxis"]
 
-def compute_exist_metrics2(pred_exist, gt_exist):
-    results = {}
+def set_seed(seed=42):
+    random.seed(seed)
+    np.random.seed(seed)
 
-    pred_bin = (pred_exist > 0.5).astype(int)
+    torch.manual_seed(seed)
 
-    for i, name in enumerate(LABEL_NAMES):
-        y_true = gt_exist[:, i]
-        y_pred = pred_bin[:, i]
-        y_prob = pred_exist[:, i]
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
 
-        if len(np.unique(y_true)) < 2:  # only PR and Paxis
-            continue
-
-        acc = accuracy_score(y_true, y_pred)
-        prec = precision_score(y_true, y_pred, zero_division=0)  # = PPV
-        rec = recall_score(y_true, y_pred, zero_division=0)
-
-        f1 = f1_score(y_true, y_pred, zero_division=0)
-
-        # confusion matrix
-        tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
-
-        # -------------------------
-        # clinical metrics
-        # -------------------------
-        spec = tn / (tn + fp) if (tn + fp) > 0 else np.nan
-        npv = tn / (tn + fn) if (tn + fn) > 0 else np.nan
-
-        # -------------------------
-        # AUROC
-        # -------------------------
-        try:
-            auc = roc_auc_score(y_true, y_prob)
-        except:
-            auc = np.nan
-
-        # -------------------------
-        # AUPRC
-        # -------------------------
-        try:
-            auprc = average_precision_score(y_true, y_prob)
-        except:
-            auprc = np.nan
-
-        results[name] = {
-            "Accuracy": acc,
-            "Precision": prec,   # same as PPV
-            "Recall": rec,
-            "Specificity": spec,
-            "F1": f1,
-            "NPV": npv,        # predictive for 「no P wave」
-            "AUROC": auc,
-            "AUPRC": auprc
-        }
-
-    return results
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 def compute_exist_metrics(pred_exist, gt_exist):
     results = {}
@@ -930,6 +886,8 @@ def main(model_name, test_only=False):
     final_test(model, test_loader, device, MODEL_NAME, label_norm)
 
 if __name__ == "__main__":
+    set_seed(42)
+    
     MODEL_NAME = "resnet" # "resnet", "ecgformer": switch model here
     main(MODEL_NAME, test_only=True)
 
